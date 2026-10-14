@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Logic Synapse - Collaborative Boolean Activity</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        .card-perspective { perspective: 1000px; }
+        .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+    <div id="root" class="flex-1 flex flex-col"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const systemTargetTable = [
+            { id: 0, A: 0, B: 0, C: 0, targetY: 0, desc: "Normal conditions." },
+            { id: 1, A: 0, B: 0, C: 1, targetY: 0, desc: "Override active without hazards." },
+            { id: 2, A: 0, B: 1, C: 0, targetY: 1, desc: "High heat detected with no override." },
+            { id: 3, A: 0, B: 1, C: 1, targetY: 0, desc: "High heat suppressed by manual override." },
+            { id: 4, A: 1, B: 0, C: 0, targetY: 1, desc: "Smoke detected with no override." },
+            { id: 5, A: 1, B: 0, C: 1, targetY: 0, desc: "Smoke present, suppressed by override." },
+            { id: 6, A: 1, B: 1, C: 0, targetY: 1, desc: "Both smoke and high heat present." },
+            { id: 7, A: 1, B: 1, C: 1, targetY: 1, desc: "Emergency dual-hazard condition." }
+        ];
+
+        const ruleDeck = [
+            {
+                title: "System Overview: Smart Home Security System",
+                tag: "Card 1 of 4",
+                icon: "shield-alert",
+                content: "You manage the automated safety specifications for a Smart Home Security System. You hold the operational directives, but you do not have the truth table grid. Your partner has the grid and needs your guidance to determine home security responses.",
+                detail: "Collaborate closely; do not share row values directly—discuss real-world scenarios together."
+            },
+            {
+                title: "Rule 1: Primary Smoke Response",
+                tag: "Card 2 of 4",
+                icon: "flame",
+                content: "When smoke is detected by sensors in the home, the alarm system must trigger. However, if the homeowner has activated the manual override switch, the alarm should remain suppressed during standard smoke conditions.",
+                detail: "Discuss with your partner what happens when smoke is present while override is active."
+            },
+            {
+                title: "Rule 2: High Temperature Hazard",
+                tag: "Card 3 of 4",
+                icon: "thermometer-sun",
+                content: "High heat on its own is dangerous. If high heat is detected and there is no active manual override, the alarm must trigger even if smoke sensors have not registered anything yet.",
+                detail: "Examine how heat alone interacts with the override switch."
+            },
+            {
+                title: "Rule 3: Emergency Override Bypass",
+                tag: "Card 4 of 4",
+                icon: "zap",
+                content: "Critical Exception: If both smoke and high heat are detected simultaneously, an active fire emergency is confirmed. Under this extreme condition, the home security system completely bypasses and ignores the manual override switch.",
+                detail: "Verify that your partner accounts for this dual-hazard exception in the table."
+            }
+        ];
+
+        const App = () => {
+            const [role, setRole] = useState("select");
+            const [cardIdx, setCardIdx] = useState(0);
+            
+            const [userTable, setUserTable] = useState(
+                systemTargetTable.map(r => ({ ...r, Y: "?" }))
+            );
+            const [activeStep, setActiveStep] = useState(1);
+            const [minterms, setMinterms] = useState({});
+            const [finalExpr, setFinalExpr] = useState("");
+            const [auditStatus, setAuditStatus] = useState({ type: 'idle', msg: '' });
+
+            useEffect(() => {
+                lucide.createIcons();
+            }, [role, cardIdx, activeStep, auditStatus]);
+
+            const toggleY = (rowIdx) => {
+                setUserTable(prev => {
+                    const next = [...prev];
+                    const current = next[rowIdx].Y;
+                    next[rowIdx].Y = current === "?" ? 1 : current === 1 ? 0 : "?";
+                    return next;
+                });
+            };
+
+            const verifyTable = () => {
+                const isComplete = userTable.every(r => r.Y !== "?");
+                if (!isComplete) {
+                    setAuditStatus({ type: 'error', msg: 'Collaborate with your partner to fill all 8 rows before checking.' });
+                    return;
+                }
+
+                const isCorrect = userTable.every((r, idx) => r.Y === systemTargetTable[idx].targetY);
+                if (isCorrect) {
+                    setAuditStatus({ type: 'success', msg: 'Truth table successfully verified. Move to step 2 to derive minterms.' });
+                    setActiveStep(2);
+                } else {
+                    setAuditStatus({ type: 'error', msg: 'Truth table contains errors. Re-consult your operational rule cards.' });
+                }
+            };
+
+            const getTrueRows = () => userTable.filter(r => r.Y === 1);
+
+            const verifyMinterms = () => {
+                const trueRows = getTrueRows();
+                let errors = false;
+
+                for (let r of trueRows) {
+                    const val = (minterms[r.id] || "").trim().toLowerCase();
+                    const expectedA = r.A === 1 ? "a" : "not a";
+                    const expectedB = r.B === 1 ? "b" : "not b";
+                    const expectedC = r.C === 1 ? "c" : "not c";
+                    
+                    // Normalize spacing for comparison
+                    const cleanVal = val.replace(/\s+/g, ' ');
+                    const term1 = `${expectedA} and ${expectedB} and ${expectedC}`;
+                    const term2 = `${expectedA} & ${expectedB} & ${expectedC}`;
+
+                    if (cleanVal !== term1 && cleanVal !== term2) {
+                        errors = true;
+                        break;
+                    }
+                }
+
+                if (!errors) {
+                    setAuditStatus({ type: 'success', msg: 'All product terms are correct. Proceed to assemble the sum of products expression.' });
+                    setActiveStep(3);
+                } else {
+                    setAuditStatus({ type: 'error', msg: 'One or more minterms are incorrect or missing. Check your variable states and **and** operators.' });
+                }
+            };
+
+            const verifyFinalSOP = () => {
+                const cleanUserExpr = finalExpr.trim().toLowerCase();
+                if (!cleanUserExpr) {
+                    setAuditStatus({ type: 'error', msg: 'Please enter your combined sum of products statement.' });
+                    return;
+                }
+
+                const trueRows = getTrueRows();
+                let missingTerm = false;
+
+                for (let r of trueRows) {
+                    const expectedA = r.A === 1 ? "a" : "not a";
+                    const expectedB = r.B === 1 ? "b" : "not b";
+                    const expectedC = r.C === 1 ? "c" : "not c";
+                    const term = `${expectedA} and ${expectedB} and ${expectedC}`;
+
+                    if (!cleanUserExpr.includes(term)) {
+                        missingTerm = true;
+                        break;
+                    }
+                }
+
+                if (!missingTerm && (cleanUserExpr.includes("or") || cleanUserExpr.includes("+"))) {
+                    setAuditStatus({ type: 'success', msg: '🎉 Excellent collaboration! You have successfully derived the master system expression.' });
+                } else {
+                    setAuditStatus({ type: 'error', msg: 'Expression is incomplete or missing **or** linkages between product terms.' });
+                }
+            };
+
+            if (role === "select") {
+                return (
+                    <div className="max-w-4xl mx-auto my-auto p-6 text-center space-y-8 animate-fadeIn">
+                        <div className="space-y-3">
+                            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-sm font-semibold uppercase tracking-wider">
+                                <i data-lucide="users" className="w-4 h-4"></i> Pair Co-Op Task
+                            </div>
+                            <h1 className="text-4xl font-extrabold text-white tracking-tight">Smart Home Security System</h1>
+                            <p className="text-slate-400 max-w-xl mx-auto leading-relaxed">
+                                A collaborative boolean logic challenge. Work with your partner on separate screens. One holds the operational rule cards; the other controls the logic workbench.
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto text-left">
+                            <button onClick={() => setRole("A")} 
+                                className="bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500/50 p-6 rounded-2xl transition-all group flex flex-col justify-between shadow-xl">
+                                <div>
+                                    <div className="w-12 h-12 bg-indigo-500/20 text-indigo-400 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                                        <i data-lucide="layers" className="w-6 h-6"></i>
+                                    </div>
+                                    <h3 className="text-xl font-bold text-white mb-2">Student A: Rule Card Holder</h3>
+                                    <p className="text-sm text-slate-400 leading-relaxed">
+                                        Controls the interactive <b>Rule Deck</b>. Evaluates real-world smart home conditions and guides your partner through row queries.
+                                    </p>
+                                </div>
+                                <span className="mt-6 inline-flex items-center gap-2 text-indigo-400 font-semibold text-sm">
+                                    Launch Rule Deck &rarr;
+                                </span>
+                            </button>
+
+                            <button onClick={() => setRole("B")} 
+                                className="bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 hover:border-emerald-500/50 p-6 rounded-2xl transition-all group flex flex-col justify-between shadow-xl">
+                                <div>
+                                    <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                                        <i data-lucide="cpu" className="w-6 h-6"></i>
+                                    </div>
+                                    <h3 className="text-xl font-bold text-white mb-2">Student B: Logic Architect</h3>
+                                    <p className="text-sm text-slate-400 leading-relaxed">
+                                        Controls the <b>Truth Table & SOP Workbench</b>. Constructs the grid based on your partner's rules and builds the SOP formula.
+                                    </p>
+                                </div>
+                                <span className="mt-6 inline-flex items-center gap-2 text-emerald-400 font-semibold text-sm">
+                                    Launch Workbench &rarr;
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="flex-1 flex flex-col max-w-6xl mx-auto w-full p-4 gap-4">
+                    <header className="bg-slate-800/90 border border-slate-700 rounded-xl p-4 flex items-center justify-between shadow-md">
+                        <div className="flex items-center gap-3">
+                            <span className={`px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider ${role === 'A' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'}`}>
+                                {role === 'A' ? 'Student A: Rule Card Holder' : 'Student B: Logic Architect'}
+                            </span>
+                            <h2 className="text-slate-200 font-semibold text-sm hidden sm:block">Collaborative SOP Challenge</h2>
+                        </div>
+                        <button onClick={() => setRole("select")} className="text-slate-400 hover:text-white text-xs font-medium flex items-center gap-1 bg-slate-700/50 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors">
+                            <i data-lucide="arrow-left" className="w-3.5 h-3.5"></i> Switch Role
+                        </button>
+                    </header>
+
+                    {/* ROLE A: INTERACTIVE CARD DECK */}
+                    {role === 'A' && (
+                        <div className="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto w-full space-y-6 my-auto">
+                            <div className="w-full relative card-perspective">
+                                <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6 relative overflow-hidden transition-all duration-300">
+                                    <div className="flex justify-between items-center border-b border-slate-700 pb-4">
+                                        <span className="text-xs font-mono font-semibold text-indigo-400 uppercase tracking-widest bg-indigo-950/60 border border-indigo-800 px-2.5 py-1 rounded-md">
+                                            {ruleDeck[cardIdx].tag}
+                                        </span>
+                                        <i data-lucide={ruleDeck[cardIdx].icon} className="w-6 h-6 text-indigo-400"></i>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <h3 className="text-2xl font-bold text-white leading-tight">
+                                            {ruleDeck[cardIdx].title}
+                                        </h3>
+                                        <p className="text-slate-300 leading-relaxed text-lg">
+                                            {ruleDeck[cardIdx].content}
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-4 text-xs font-mono text-slate-400 flex items-start gap-3">
+                                        <i data-lucide="info" className="w-4 h-4 text-amber-400 shrink-0 mt-0.5"></i>
+                                        <div>
+                                            <span className="font-bold text-amber-400 uppercase">Collaboration Tip: </span>
+                                            {ruleDeck[cardIdx].detail}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between w-full bg-slate-800/50 p-2 rounded-xl border border-slate-700">
+                                <button 
+                                    onClick={() => setCardIdx(prev => Math.max(0, prev - 1))}
+                                    disabled={cardIdx === 0}
+                                    className="bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2">
+                                    <i data-lucide="chevron-left" className="w-4 h-4"></i> Previous
+                                </button>
+
+                                <div className="flex gap-1.5">
+                                    {ruleDeck.map((_, idx) => (
+                                        <div key={idx} className={`w-2.5 h-2.5 rounded-full ${idx === cardIdx ? 'bg-indigo-500' : 'bg-slate-600'}`}></div>
+                                    ))}
+                                </div>
+
+                                <button 
+                                    onClick={() => setCardIdx(prev => Math.min(ruleDeck.length - 1, prev + 1))}
+                                    disabled={cardIdx === ruleDeck.length - 1}
+                                    className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2">
+                                    Next Card <i data-lucide="chevron-right" className="w-4 h-4"></i>
+                                </button>
+                            </div>
+
+                            <div className="bg-indigo-950/40 border border-indigo-800/50 rounded-xl p-4 text-sm text-indigo-200 text-center space-y-1">
+                                <p className="font-medium">🗣️ Converse with your partner continuously!</p>
+                                <p className="text-xs text-indigo-300/80">
+                                    Let your partner test various input scenarios and help them reason whether the alarm should activate based on your active rule cards.
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ROLE B: LOGIC ARCHITECT WORKBENCH */}
+                    {role === 'B' && (
+                        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                            <div className="lg:col-span-6 bg-slate-800/80 border border-slate-700 rounded-2xl overflow-hidden shadow-xl flex flex-col">
+                                <div className="bg-slate-900 border-b border-slate-700 p-4 flex items-center justify-between">
+                                    <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                                        <i data-lucide="table" className="w-4 h-4 text-emerald-400"></i>
+                                        System Truth Table Grid
+                                    </h3>
+                                    <span className="text-xs text-slate-400 font-mono">Consult Student A for rules!</span>
+                                </div>
+
+                                <div className="overflow-x-auto custom-scrollbar">
+                                    <table className="w-full text-center border-collapse text-sm">
+                                        <thead className="bg-slate-900/50 text-slate-400 border-b border-slate-700 font-mono text-xs">
+                                            <tr>
+                                                <th className="py-2.5 px-3">Smoke (A)</th>
+                                                <th className="py-2.5 px-3">Heat (B)</th>
+                                                <th className="py-2.5 px-3">Override (C)</th>
+                                                <th className="py-2.5 px-3 text-emerald-400 bg-emerald-950/30">Alarm Output (Y)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {userTable.map((row, idx) => (
+                                                <tr key={idx} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors">
+                                                    <td className="py-2.5 font-mono text-slate-300">{row.A}</td>
+                                                    <td className="py-2.5 font-mono text-slate-300">{row.B}</td>
+                                                    <td className="py-2.5 font-mono text-slate-300">{row.C}</td>
+                                                    <td className="py-2 px-3 bg-emerald-950/20">
+                                                        <button 
+                                                            disabled={activeStep > 1}
+                                                            onClick={() => toggleY(idx)}
+                                                            className={`w-9 h-8 rounded font-mono font-bold transition-all ${row.Y === '?' ? 'bg-slate-700 text-slate-400 border border-dashed border-slate-500' : row.Y === 1 ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-900 text-slate-400 border border-slate-700'}`}>
+                                                            {row.Y}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {activeStep === 1 && (
+                                    <div className="p-4 bg-slate-900/60 border-t border-slate-700">
+                                        <button onClick={verifyTable} 
+                                            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl font-semibold shadow-md transition-colors text-sm">
+                                            Verify Table with Partner
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="lg:col-span-6 space-y-4">
+                                <div className={`p-5 rounded-2xl border transition-all ${activeStep === 2 ? 'bg-slate-800 border-indigo-500/60 ring-2 ring-indigo-500/20' : 'bg-slate-800/40 border-slate-700/60 opacity-60'}`}>
+                                    <h4 className="font-bold text-white text-sm mb-2 flex items-center gap-2">
+                                        <span className="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-400 text-xs flex items-center justify-center font-bold">2</span>
+                                        Derive Minterms (Product Terms)
+                                    </h4>
+                                    <p className="text-xs text-slate-400 mb-3">
+                                        For each row where output <b>Y = 1</b>, construct a product term using variables connected with **and** (e.g., <code className="text-indigo-300 font-mono">not a and b and c</code>).
+                                    </p>
+
+                                    {activeStep >= 2 && (
+                                        <div className="space-y-2 mb-4">
+                                            {getTrueRows().map(r => (
+                                                <div key={r.id} className="flex items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-700">
+                                                    <span className="text-xs font-mono text-slate-400 w-28 shrink-0">
+                                                        Row ({r.A},{r.B},{r.C}):
+                                                    </span>
+                                                    <input 
+                                                        type="text"
+                                                        disabled={activeStep > 2}
+                                                        placeholder="e.g. a and b and not c"
+                                                        value={minterms[r.id] || ""}
+                                                        onChange={(e) => setMinterms({...minterms, [r.id]: e.target.value})}
+                                                        className="flex-1 bg-slate-800 border border-slate-600 text-slate-200 px-3 py-1 text-xs font-mono rounded lowercase focus:outline-none focus:border-indigo-500"
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {activeStep === 2 && (
+                                        <button onClick={verifyMinterms}
+                                            className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-4 py-2 rounded-lg font-semibold transition-colors">
+                                            Verify Minterms
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className={`p-5 rounded-2xl border transition-all ${activeStep === 3 ? 'bg-slate-800 border-emerald-500/60 ring-2 ring-emerald-500/20' : 'bg-slate-800/40 border-slate-700/60 opacity-60'}`}>
+                                    <h4 className="font-bold text-white text-sm mb-2 flex items-center gap-2">
+                                        <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs flex items-center justify-center font-bold">3</span>
+                                        Combine with **or** (Sum of Products)
+                                    </h4>
+                                    <p className="text-xs text-slate-400 mb-3">
+                                        Link all verified minterms together using **or** to complete the master system equation.
+                                    </p>
+
+                                    {activeStep === 3 && (
+                                        <div className="space-y-3">
+                                            <textarea 
+                                                rows="3"
+                                                placeholder="(term1) or (term2) or ..."
+                                                value={finalExpr}
+                                                onChange={(e) => setFinalExpr(e.target.value)}
+                                                className="w-full bg-slate-900 border border-slate-600 text-slate-200 p-3 text-xs font-mono rounded-xl focus:outline-none focus:border-emerald-500 resize-none lowercase"
+                                            ></textarea>
+                                            <button onClick={verifyFinalSOP}
+                                                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-5 py-2.5 rounded-xl font-semibold transition-colors">
+                                                Final System Audit & Lock-In
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {auditStatus.msg && (
+                                    <div className={`p-4 rounded-xl border text-xs leading-relaxed flex items-start gap-3 ${auditStatus.type === 'success' ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200' : 'bg-amber-950/40 border-amber-500/50 text-amber-200'}`}>
+                                        <i data-lucide={auditStatus.type === 'success' ? 'check-circle' : 'alert-circle'} className="w-5 h-5 shrink-0 mt-0.5"></i>
+                                        <div>{auditStatus.msg}</div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
